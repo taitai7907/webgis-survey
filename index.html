@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGIS Survey Template Tool - Prototype</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <style>
+        /* สไตล์ตั้งต้นสำหรับหน้าจอคอมพิวเตอร์ (Desktop) */
+        #map {
+            height: calc(100vh - 100px);
+            width: 100%;
+        }
+
+        .sidebar {
+            height: calc(100vh - 100px);
+            overflow-y: auto;
+        }
+
+        /* ปรับแต่งความสูงสำหรับหน้าจอมือถือ (Mobile) ให้พอดีหน้าจอและคำนวณหักลบแถบปุ่มสลับ */
+        @media (max-width: 767.98px) {
+            #map {
+                height: calc(100vh - 180px);
+            }
+            .sidebar {
+                height: calc(100vh - 180px);
+            }
+        }
+    </style>
+</head>
+
+<body class="bg-light">
+
+    <div class="container-fluid my-3">
+        <div class="card p-3 mb-3 shadow-sm bg-white">
+            <h4 class="text-primary m-0">📊 WebGIS Survey Template Tool <span class="badge bg-secondary fs-6">Prototype V1</span></h4>
+        </div>
+
+        <div class="d-md-none mb-3">
+            <div class="btn-group w-100 shadow-sm" role="group">
+                <button type="button" class="btn btn-primary fw-bold" id="toggleMapBtn">🗺️ แสดงแผนที่</button>
+                <button type="button" class="btn btn-outline-primary fw-bold" id="toggleSidebarBtn">📋 ฟอร์ม & รายการ</button>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-md-4" id="sidebarCol">
+                <div class="card p-3 shadow-sm sidebar bg-white">
+                    <h5 class="card-title border-bottom pb-2">📋 ข้อมูลการสำรวจ</h5>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">1. เลือกประเภทการสำรวจ (Template)</label>
+                        <select class="form-select" id="surveyType">
+                            <option value="tree">🌳 Tree Survey (สำรวจต้นไม้)</option>
+                            <option value="tourism">📍 Tourism Survey (สำรวจแหล่งท่องเที่ยว)</option>
+                            <option value="utility">🏥 Utility Survey (สำรวจสาธารณูปโภคเมือง)</option>
+                            <option value="landuse">🚲 Land Use Survey (สำรวจการใช้ประโยชน์ที่ดิน)</option>
+                        </select>
+                        <div class="mb-3 mt-2">
+                            <button class="btn btn-outline-primary w-100 fw-bold shadow-sm btn-sm" id="gpsBtn" type="button">
+                                🧭 จับตำแหน่งปัจจุบันของฉัน
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card bg-light p-3 mb-3">
+                        <h6 class="text-muted mb-3">📝 ฟอร์มบันทึกข้อมูลภาคสนาม</h6>
+                        <div id="dynamicForm">
+                            <p class="text-center text-muted my-4">** [ขั้นตอน] เลือกเครื่องมือวาดบนแผนที่ เพื่อเริ่มบันทึกข้อมูล **</p>
+                        </div>
+                    </div>
+
+                    <div class="card p-2 mb-3 bg-white border d-none" id="featureListCard">
+                        <h6 class="fw-bold text-secondary border-bottom pb-1 mb-2">📋 รายการที่บันทึกแล้ว (<span id="featureCount">0</span>)</h6>
+                        <small class="text-muted d-block mb-1">💡 คลิกที่แถวข้อมูลเพื่อซูมและเปิดหน้าต่างบนแผนที่</small>
+                        <div style="max-height: 150px; overflow-y: auto;">
+                            <table class="table table-sm table-striped table-hover m-0" style="font-size: 13px;">
+                                <thead>
+                                    <tr class="table-light">
+                                        <th>ประเภท</th>
+                                        <th>ข้อมูลสำคัญ</th>
+                                        <th>เวลาบันทึก</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="featureTableBody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="mt-auto pt-2 border-top">
+                        <div class="mb-2">
+                            <label class="btn btn-outline-secondary w-100 fw-bold py-1 btn-sm">
+                                📂 นำเข้าไฟล์ GeoJSON
+                                <input type="file" id="importFile" accept=".geojson,.json" style="display: none;">
+                            </label>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <button class="btn btn-outline-danger w-100 fw-bold py-2" id="clearBtn" disabled>
+                                    🗑️ ล้างข้อมูลใหม่
+                                </button>
+                            </div>
+                            <div class="col-6">
+                                <button class="btn btn-success w-100 fw-bold py-2" id="exportBtn" disabled>
+                                    💾 ส่งออก GeoJSON
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-8" id="mapCol">
+                <div class="card shadow-sm p-1 bg-white">
+                    <div id="map" class="rounded"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <script>
+        // เริ่มต้นระบบแผนที่ และตั้งค่าพิกัดเริ่มต้น
+        const map = L.map('map').setView([13.7367, 100.5231], 13);
+
+        // 1. นิยามแผนที่ฐาน (Base Maps) แบบต่างๆ
+        const osmMap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        });
+
+        var google_sat = L.tileLayer("https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", {
+            maxZoom: 21, subdomains: ["mt0", "mt1", "mt2", "mt3"], attribution: '© Google'
+        });
+
+        var google_hb = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", {
+            maxZoom: 21, subdomains: ["mt0", "mt1", "mt2", "mt3"], attribution: '© Google'
+        });
+
+        // 2. นิยามชั้นข้อมูลบริการ WMS (Overlay Maps ของหน่วยงาน)
+        var admin_tam = L.tileLayer.wms("https://geoplots.doae.go.th/geoserver/doae_gis/wms", {
+            layers: "doae_gis:admin_tam_4326", format: "image/png", transparent: true, maxZoom: 21, tiled: true
+        });
+
+        var admin_amp = L.tileLayer.wms("https://geoplots.doae.go.th/geoserver/doae_gis/wms", {
+            layers: "doae_gis:admin_amp_4326", format: "image/png", transparent: true, maxZoom: 21, tiled: true
+        });
+
+        var admin_pro = L.tileLayer.wms("https://geoplots.doae.go.th/geoserver/doae_gis/wms", {
+            layers: "doae_gis:admin_pro_4326", format: "image/png", transparent: true, maxZoom: 21, tiled: true, styles: 'admin_pro_4326_nolabel'
+        });
+
+        var agri_area_ldd = L.tileLayer.wms("https://geoplots.doae.go.th/geoserver/doae_gis/wms", {
+            layers: "doae_gis:agri_area_ldd", format: "image/png", transparent: true, maxZoom: 21, tiled: true
+        });
+
+        // 3. นิยามกลุ่มข้อมูลสำหรับการจัดการชั้นข้อมูลภาคสนามแยกอิสระ
+        const drawnItems = new L.FeatureGroup();
+        const treeGroup = new L.FeatureGroup().addTo(map);
+        const tourismGroup = new L.FeatureGroup().addTo(map);
+        const utilityGroup = new L.FeatureGroup().addTo(map);
+        const landuseGroup = new L.FeatureGroup().addTo(map);
+
+        var baseMaps = {
+            "🗺️ แผนที่ถนน (OpenStreetMap)": osmMap,
+            "🛰️ ดาวเทียม Esri (World Imagery)": L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles &copy; Esri'
+            }),
+            "🛰️ ดาวเทียม Google (Google Satellite)": google_sat,
+            "🗺️ ดาวเทียมแบบมีชื่อสถานที่ (Google Hybrid)": google_hb
+        };
+
+        var overlayMaps = {
+            "ขอบเขตจังหวัด": admin_pro,
+            "ขอบเขตอำเภอ": admin_amp,
+            "ขอบเขตตำบล": admin_tam,
+            "แผนที่พื้นที่เหมาะสมในการปลูกพืชเศรษฐกิจ 11 ชนิด": agri_area_ldd,
+            "🌳 ภาคสนาม: สำรวจต้นไม้": treeGroup,
+            "📍 ภาคสนาม: แหล่งท่องเที่ยว": tourismGroup,
+            "🏥 ภาคสนาม: สาธารณูปโภค": utilityGroup,
+            "🚲 ภาคสนาม: ผังการใช้ที่ดิน": landuseGroup
+        };
+
+        L.control.layers(baseMaps, overlayMaps).addTo(map);
+        osmMap.addTo(map); // เปิดใช้งาน OSM เป็นค่าเริ่มต้น
+
+        // 4. ตั้งค่าเครื่องมือการวาด (Leaflet Draw)
+        const drawControl = new L.Control.Draw({
+            edit: { featureGroup: drawnItems },
+            draw: {
+                polygon: true, polyline: true, marker: true,
+                rectangle: false, circle: false, circlemarker: false
+            }
+        });
+        map.addControl(drawControl);
+
+        // 5. ตัวแปรสถานะและพิกัดข้อมูลเชิงระบบ
+        let allSurveyFeatures = [];
+        let tempLayer = null;
+        let leafletLayersMap = {}; // ตัวแปรแมปไอดีระหว่างตารางแถวข้อมูลกับวัตถุบนแผนที่
+
+        // 📱 --- ระบบฟังก์ชันควบคุมและสลับแท็บหน้าจอบนมือถือ (Mobile UI Control) ---
+        const sidebarCol = document.getElementById('sidebarCol');
+        const mapCol = document.getElementById('mapCol');
+        const toggleMapBtn = document.getElementById('toggleMapBtn');
+        const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
+
+        function switchMobileView(target) {
+            if (window.innerWidth >= 768) return; // ทำงานเฉพาะโหมดอุปกรณ์หน้าจอเล็ก
+
+            if (target === 'map') {
+                sidebarCol.classList.add('d-none');
+                mapCol.classList.remove('d-none');
+                toggleMapBtn.classList.replace('btn-outline-primary', 'btn-primary');
+                toggleSidebarBtn.classList.replace('btn-primary', 'btn-outline-primary');
+                // สั่งล้างแคชคำนวณสัดส่วนพิกเซลแผนที่ทันทีที่แท็บเปิดขึ้นมา ป้องกันแผนที่เทาหรือโหลดไม่สมบูรณ์
+                setTimeout(() => map.invalidateSize(), 80);
+            } else if (target === 'sidebar') {
+                sidebarCol.classList.remove('d-none');
+                mapCol.classList.add('d-none');
+                toggleSidebarBtn.classList.replace('btn-outline-primary', 'btn-primary');
+                toggleMapBtn.classList.replace('btn-primary', 'btn-outline-primary');
+            }
+        }
+
+        if (toggleMapBtn && toggleSidebarBtn) {
+            toggleMapBtn.addEventListener('click', () => switchMobileView('map'));
+            toggleSidebarBtn.addEventListener('click', () => switchMobileView('sidebar'));
+        }
+
+        function checkLayoutOnResize() {
+            if (window.innerWidth >= 768) {
+                sidebarCol.classList.remove('d-none');
+                mapCol.classList.remove('d-none');
+            } else {
+                // หากพับหน้าจอลงมาเป็นมือถือ ให้ตั้งหน้าจอหลักไปที่แผนที่เพื่อพร้อมวาด
+                if (!sidebarCol.classList.contains('d-none') && !mapCol.classList.contains('d-none')) {
+                    switchMobileView('map');
+                }
+            }
+        }
+        window.addEventListener('resize', checkLayoutOnResize);
+        // รันครั้งแรกทันทีตอนโหลดเว็บ
+        if (window.innerWidth < 768) { switchMobileView('map'); }
+
+        // ดักจับเหตุการณ์เมื่อผู้ใช้วาดพิกัดจุด เส้น หรือแปลงบนแผนที่เสร็จสิ้น
+        map.on(L.Draw.Event.CREATED, function (e) {
+            tempLayer = e.layer;
+            drawnItems.addLayer(tempLayer);
+            tempLayer.addTo(map);
+            tempLayer.bindPopup("<b>📌 พิกัดถูกบันทึกแล้ว</b><br>กรุณากรอกข้อมูลในฟอร์มฝั่งซ้ายแล้วกดบันทึก").openPopup();
+            
+            // 🌟 UX ไฮไลต์บนมือถือ: บินไปหน้ากรอกฟอร์มฝั่งซ้ายทันทีเมื่อวาดเสร็จ เพื่อให้กรอกข้อมูลได้สะดวก
+            switchMobileView('sidebar');
+        });
+
+        // 6. โครงสร้างฟอร์มคุณลักษณะในระบบ (Templates Collection)
+        const templates = {
+            tree: `
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-secondary">🌳 ชนิดต้นไม้</label>
+                    <input type="text" id="field_species" class="form-control" placeholder="เช่น ต้นสัก, ต้นประดู่">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-secondary">📏 ความสูง (เมตร)</label>
+                    <input type="number" id="field_height" class="form-control" placeholder="เช่น 15">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-secondary">🍂 สภาพต้นไม้</label>
+                    <select id="field_status" class="form-select">
+                        <option value="สมบูรณ์">🟢 สมบูรณ์แข็งแรง</option>
+                        <option value="ทรุดโทรม">🟡 ทรุดโทรม/มีโรค</option>
+                        <option value="เสี่ยงโค่นล้ม">🔴 เสี่ยงโค่นล้ม</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary w-100 fw-bold" onclick="saveCurrentData('tree')">💾 บันทึกข้อมูลต้นไม้</button>
+            `,
+            tourism: `
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-secondary">📍 ชื่อสถานที่ท่องเที่ยว</label>
+                    <input type="text" id="field_place_name" class="form-control" placeholder="เช่น วัดอรุณฯ, ตลาดน้ำ">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-secondary">🏛️ ประเภทสถานที่</label>
+                    <select id="field_tour_type" class="form-select">
+                        <option value="วัฒนธรรม">โบราณสถาน/วัฒนธรรม</option>
+                        <option value="ธรรมชาติ">แหล่งท่องเที่ยวธรรมชาติ</option>
+                        <option value="ช้อปปิ้ง">ตลาด/แหล่งช้อปปิ้ง</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-secondary">📝 รายละเอียดเพิ่มเติม</label>
+                    <textarea id="field_detail" class="form-control" rows="2" placeholder="คำอธิบายสั้นๆ..."></textarea>
+                </div>
+                <button class="btn btn-primary w-100 fw-bold" onclick="saveCurrentData('tourism')">💾 บันทึกข้อมูลสถานที่</button>
+            `,
+            utility: `
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-secondary">🏥 ประเภทสาธารณูปโภค</label>
+                    <select id="field_utility_type" class="form-select">
+                        <option value="เสาไฟฟ้า/โคมไฟ">💡 เสาไฟฟ้า / โคมไฟส่องสว่าง</option>
+                        <option value="ถังขยะ">🗑️ ถังขยะสาธารณะ</option>
+                        <option value="ฝาท่อระบายน้ำ">🕳️ ฝาท่อระบายน้ำ</option>
+                        <option value="ป้ายรถเมล์">🚌 ศาลา/ป้ายรถเมล์</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-secondary">🔧 สภาพการชำรุด</label>
+                    <select id="field_utility_status" class="form-select">
+                        <option value="ปกติ">🟢 ใช้งานได้ปกติ</option>
+                        <option value="ชำรุดเล็กน้อย">🟡 ชำรุดเล็กน้อย (ยังใช้งานได้)</option>
+                        <option value="เสียหายหนัก">🔴 เสียหายหนัก (ต้องซ่อมแซมด่วน)</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-secondary">🏢 หน่วยงานที่รับผิดชอบ</label>
+                    <input type="text" id="field_utility_owner" class="form-control" placeholder="เช่น กฟน., เทศบาล, กทม.">
+                </div>
+                <button class="btn btn-primary w-100 fw-bold" onclick="saveCurrentData('utility')">💾 บันทึกข้อมูลสาธารณูปโภค</button>
+            `,
+            landuse: `
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-secondary">🚲 การใช้ประโยชน์ที่ดิน (Land Use)</label>
+                    <select id="field_lu_type" class="form-select">
+                        <option value="ที่อยู่อาศัย">🏠 ที่อยู่อาศัย (Residential)</option>
+                        <option value="พาณิชยกรรม">🛍️ พาณิชยกรรม/ร้านค้า (Commercial)</option>
+                        <option value="เกษตรกรรม">🌾 เกษตรกรรม (Agricultural)</option>
+                        <option value="พื้นที่ว่างเปล่า">🌱 พื้นที่ว่างเปล่า (Vacant Land)</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-secondary">🏢 จำนวนชั้นของอาคาร</label>
+                    <input type="number" id="field_lu_floors" class="form-control" value="1">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold text-secondary">📝 ชื่ออาคาร / หมายเหตุ</label>
+                    <input type="text" id="field_lu_name" class="form-control" placeholder="เช่น หอพักเจริญสุข, สวนกล้วย">
+                </div>
+                <button class="btn btn-primary w-100 fw-bold" onclick="saveCurrentData('landuse')">💾 บันทึกข้อมูลที่ดิน</button>
+            `
+        };
+
+        function updateFormTemplate() {
+            const selectedType = document.getElementById('surveyType').value;
+            const formContainer = document.getElementById('dynamicForm');
+            formContainer.innerHTML = templates[selectedType];
+        }
+
+        document.getElementById('surveyType').addEventListener('change', updateFormTemplate);
+        updateFormTemplate(); // เรียกผูกฟอร์มครั้งแรกทันทีตอนเริ่มระบบ
+
+        // ฟังก์ชันเก็บรวบรวมค่าและบันทึกข้อมูลเข้าสู่ฐานข้อมูลระบบแผนที่
+        function saveCurrentData(type) {
+            if (!tempLayer) {
+                alert("❌ กรุณาวาดจุด เส้น หรือพื้นที่บนแผนที่ก่อนกดบันทึกข้อมูลครับ!");
+                return;
+            }
+
+            map.removeLayer(tempLayer);
+            let geojsonStructure = tempLayer.toGeoJSON();
+            geojsonStructure.properties = {};
+
+            if (type === 'tree') {
+                geojsonStructure.properties.survey_type = "Tree Survey";
+                geojsonStructure.properties.species = document.getElementById('field_species').value || "ไม่ระบุ";
+                geojsonStructure.properties.height = parseFloat(document.getElementById('field_height').value) || 0;
+                geojsonStructure.properties.status = document.getElementById('field_status').value;
+            } else if (type === 'tourism') {
+                geojsonStructure.properties.survey_type = "Tourism Survey";
+                geojsonStructure.properties.place_name = document.getElementById('field_place_name').value || "ไม่ระบุ";
+                geojsonStructure.properties.type = document.getElementById('field_tour_type').value;
+                geojsonStructure.properties.detail = document.getElementById('field_detail').value || "-";
+            } else if (type === 'utility') {
+                geojsonStructure.properties.survey_type = "Utility Survey";
+                geojsonStructure.properties.utility_type = document.getElementById('field_utility_type').value;
+                geojsonStructure.properties.status = document.getElementById('field_utility_status').value;
+                geojsonStructure.properties.responsible_owner = document.getElementById('field_utility_owner').value || "ไม่ระบุ";
+            } else if (type === 'landuse') {
+                geojsonStructure.properties.survey_type = "Land Use Survey";
+                geojsonStructure.properties.landuse_type = document.getElementById('field_lu_type').value;
+                geojsonStructure.properties.floors = parseInt(document.getElementById('field_lu_floors').value) || 0;
+                geojsonStructure.properties.building_name = document.getElementById('field_lu_name').value || "ไม่ระบุ";
+            }
+            geojsonStructure.properties.timestamp = new Date().toLocaleString('th-TH');
+
+            // ผลักตัวรับค่าเข้ากลุ่มเลเยอร์เป้าหมาย
+            if (type === 'tree') treeGroup.addLayer(tempLayer);
+            else if (type === 'tourism') tourismGroup.addLayer(tempLayer);
+            else if (type === 'utility') utilityGroup.addLayer(tempLayer);
+            else if (type === 'landuse') landuseGroup.addLayer(tempLayer);
+
+            let currentLayerId = tempLayer._leaflet_id;
+            geojsonStructure.properties.map_id = currentLayerId;
+            leafletLayersMap[currentLayerId] = tempLayer;
+
+            allSurveyFeatures.push(geojsonStructure);
+
+            // คัดแยกสีของสัญลักษณ์ตามประเภทเลเยอร์
+            let themeColor = "#0d6efd";
+            if (type === 'tree') themeColor = "#198754";
+            else if (type === 'tourism') themeColor = "#dc3545";
+            else if (type === 'utility') themeColor = "#ffc107";
+            else if (type === 'landuse') themeColor = "#6f42c1";
+
+            if (tempLayer instanceof L.Marker) {
+                const customIcon = L.divIcon({
+                    className: 'custom-marker-icon',
+                    html: `<div style="background-color: ${themeColor}; width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.4);"></div>`,
+                    iconSize: [16, 16], iconAnchor: [8, 8]
+                });
+                tempLayer.setIcon(customIcon);
+            } else if (tempLayer.setStyle) {
+                tempLayer.setStyle({ color: themeColor, fillColor: themeColor, fillOpacity: 0.4, weight: 3 });
+            }
+
+            // ผูกหน้าต่าง Popup
+            let popupHTML = `<div style="min-width: 180px;"><h6 class="text-primary border-bottom pb-1 mb-2">📊 ข้อมูลการสำรวจ</h6><ul class="list-unstyled m-0" style="font-size: 13px; line-height: 1.6;">`;
+            if (type === 'tree') {
+                popupHTML += `<li><b>📋 ประเภท:</b> 🌳 สำรวจต้นไม้</li><li><b>🌲 ชนิด:</b> ${geojsonStructure.properties.species}</li><li><b>📏 ความสูง:</b> ${geojsonStructure.properties.height} เมตร</li><li><b>🍂 สภาพ:</b> ${geojsonStructure.properties.status}</li>`;
+            } else if (type === 'tourism') {
+                popupHTML += `<li><b>📋 ประเภท:</b> 📍 แหล่งท่องเที่ยว</li><li><b>🏛️ ชื่อสถานที่:</b> ${geojsonStructure.properties.place_name}</li><li><b>🧭 หมวดหมู่:</b> ${geojsonStructure.properties.type}</li><li><b>📝 รายละเอียด:</b> ${geojsonStructure.properties.detail}</li>`;
+            } else if (type === 'utility') {
+                popupHTML += `<li><b>📋 ประเภท:</b> 🏥 สาธารณูปโภค</li><li><b>💡 ชนิดอุปกรณ์:</b> ${geojsonStructure.properties.utility_type}</li><li><b>🔧 สถานะ:</b> ${geojsonStructure.properties.status}</li><li><b>🏢 ผู้ดูแล:</b> ${geojsonStructure.properties.responsible_owner}</li>`;
+            } else if (type === 'landuse') {
+                popupHTML += `<li><b>📋 ประเภท:</b> 🚲 ผังการใช้ที่ดิน</li><li><b>🏠 รูปแบบ:</b> ${geojsonStructure.properties.landuse_type}</li><li><b>🏢 จำนวนชั้น:</b> ${geojsonStructure.properties.floors} ชั้น</li><li><b>📝 ชื่ออาคาร:</b> ${geojsonStructure.properties.building_name}</li>`;
+            }
+            popupHTML += `<li class="text-muted border-top mt-1 pt-1" style="font-size: 11px;">⏱️ ${geojsonStructure.properties.timestamp}</li></ul></div>`;
+
+            tempLayer.bindPopup(popupHTML);
+
+            document.getElementById('clearBtn').disabled = false;
+            document.getElementById('exportBtn').disabled = false;
+
+            updateFeatureTableList();
+            tempLayer = null;
+            updateFormTemplate();
+            alert("💾 บันทึกข้อมูลพิกัดและคุณลักษณะเรียบร้อยแล้ว!");
+
+            // 🌟 UX ไฮไลต์บนมือถือ: เมื่อกดเซฟเสร็จ สั่งให้ดีดหน้าจอกลับมาที่แผนที่อัตโนมัติเพื่อตรวจสอบความถูกต้องและเปิดพ่นป๊อปอัพโชว์
+            switchMobileView('map');
+            setTimeout(() => {
+                if (leafletLayersMap[currentLayerId]) {
+                    leafletLayersMap[currentLayerId].openPopup();
+                }
+            }, 250);
+        }
+
+        // ระบบพ่นตารางสรุปแบบ Real-time ข้อมูลเชิงแถว
+        function updateFeatureTableList() {
+            const card = document.getElementById('featureListCard');
+            const tableBody = document.getElementById('featureTableBody');
+            const countSpan = document.getElementById('featureCount');
+
+            if (allSurveyFeatures.length === 0) {
+                card.classList.add('d-none');
+                return;
+            }
+
+            card.classList.remove('d-none');
+            countSpan.innerText = allSurveyFeatures.length;
+
+            let tableHTML = "";
+            allSurveyFeatures.forEach(feature => {
+                const props = feature.properties;
+                let displayName = "-";
+                if (props.survey_type === "Tree Survey") displayName = props.species;
+                else if (props.survey_type === "Tourism Survey") displayName = props.place_name;
+                else if (props.survey_type === "Utility Survey") displayName = props.utility_type;
+                else if (props.survey_type === "Land Use Survey") displayName = props.landuse_type;
+
+                const shortTime = props.timestamp ? props.timestamp.split(' ')[1] : "-";
+                
+                tableHTML += `<tr style="cursor: pointer;" onclick="zoomToMapFeature(${props.map_id})" title="คลิกเพื่อบินไปหาพิกัดชิ้นนี้">
+                    <td class="fw-bold text-muted" style="font-size: 11px;">${props.survey_type.split(' ')[0]}</td>
+                    <td>${displayName} 🔍</td>
+                    <td class="text-muted">${shortTime}</td>
+                </tr>`;
+            });
+            tableBody.innerHTML = tableHTML;
+        }
+
+        // 🌟 ฟังก์ชันซูมล็อคเป้าหมาย (แก้ไขบั๊กหมุดไม่กึ่งกลาง และรองรับการสลับแท็บมือถือ)
+        function zoomToMapFeature(mapId) {
+            const targetLayer = leafletLayersMap[mapId];
+            if (!targetLayer) return;
+
+            // 🌟 หากใช้งานบนมือถือ ให้สลับแท็บไปที่แผนที่ก่อนซูมพิกัด
+            switchMobileView('map');
+
+            map.invalidateSize();
+            targetLayer.openPopup();
+
+            // ใช้ดีเลย์เพื่อแก้ปัญหา Popup ดันหมุดตกขอบหน้าจอ
+            setTimeout(() => {
+                if (targetLayer instanceof L.Marker) {
+                    map.setView(targetLayer.getLatLng(), 18, { animate: true });
+                } else if (typeof targetLayer.getBounds === 'function') {
+                    map.fitBounds(targetLayer.getBounds(), { maxZoom: 18, animate: true });
+                }
+            }, 200);
+        }
+
+        // ระบบดาวน์โหลดไฟล์ข้อกำหนด GeoJSON
+        document.getElementById('exportBtn').addEventListener('click', function () {
+            if (allSurveyFeatures.length === 0) return;
+            const finalGeoJSON = { type: "FeatureCollection", features: allSurveyFeatures };
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(finalGeoJSON, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", "field_survey_data.geojson");
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        });
+
+        // ระบบล้างข้อมูลใหม่ทิ้งทั้งหมดบนแผนที่กระดานวาด
+        document.getElementById('clearBtn').addEventListener('click', function () {
+            if (confirm("⚠️ คุณต้องการลบข้อมูลการสำรวจทั้งหมดที่เคยบันทึกไว้ใช่หรือไม่?")) {
+                drawnItems.clearLayers();
+                treeGroup.clearLayers();
+                tourismGroup.clearLayers();
+                utilityGroup.clearLayers();
+                landuseGroup.clearLayers();
+
+                allSurveyFeatures = [];
+                leafletLayersMap = {};
+                document.getElementById('exportBtn').disabled = true;
+                document.getElementById('clearBtn').disabled = true;
+                updateFormTemplate();
+                updateFeatureTableList();
+                alert("🗑️ ล้างฐานข้อมูลการสำรวจเรียบร้อย");
+            }
+        });
+
+        // ระบบจับพิกัดอุปกรณ์จริงผ่านสัญญานดาวเทียม / เครือข่าย (GPS Geolocation)
+        document.getElementById('gpsBtn').addEventListener('click', function () {
+            if (!navigator.geolocation) {
+                alert("❌ เบราว์เซอร์ของคุณไม่รองรับระบบระบุพิกัด");
+                return;
+            }
+            const btn = document.getElementById('gpsBtn');
+            btn.innerHTML = `⏳ กำลังค้นหาตำแหน่งของคุณ...`;
+            btn.disabled = true;
+
+            navigator.geolocation.getCurrentPosition(
+                function (position) {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    
+                    // 🌟 กดปุ่มปุ๊บ บินมาหน้าแผนที่ทันทีบนจอมือถือเพื่อดูตำแหน่งของตนเอง
+                    switchMobileView('map');
+
+                    map.setView([lat, lng], 17);
+                    L.circle([lat, lng], { radius: 15, color: '#0d6efd', fillColor: '#0d6efd', fillOpacity: 0.3 }).addTo(map).bindPopup("🧭 คุณกำลังยืนอยู่บริเวณนี้").openPopup();
+                    btn.innerHTML = `🧭 จับตำแหน่งปัจจุบันของฉัน`;
+                    btn.disabled = false;
+                },
+                function (error) {
+                    alert("❌ ไม่สามารถเข้าถึงพิกัดของคุณได้ กรุณาเปิดสิทธิ์ Location");
+                    btn.innerHTML = `🧭 จับตำแหน่งปัจจุบันของฉัน`;
+                    btn.disabled = false;
+                },
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+            );
+        });
+
+        // ระบบนำเข้าไฟล์ GeoJSON เก่ามาทำการสำรวจและวาดโครงสร้างต่อ (Import)
+        document.getElementById('importFile').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (evt) {
+                try {
+                    const importedData = JSON.parse(evt.target.result);
+                    if (importedData.type !== "FeatureCollection" || !importedData.features) {
+                        alert("❌ ไฟล์นี้ไม่ใช่โครงสร้าง GeoJSON มาตรฐาน");
+                        return;
+                    }
+
+                    L.geoJSON(importedData, {
+                        onEachFeature: function (feature, layer) {
+                            drawnItems.addLayer(layer);
+
+                            const props = feature.properties;
+                            const type = props.survey_type === "Tree Survey" ? "tree" :
+                                         props.survey_type === "Tourism Survey" ? "tourism" :
+                                         props.survey_type === "Utility Survey" ? "utility" : "landuse";
+
+                            if (type === 'tree') treeGroup.addLayer(layer);
+                            else if (type === 'tourism') tourismGroup.addLayer(layer);
+                            else if (type === 'utility') utilityGroup.addLayer(layer);
+                            else if (type === 'landuse') landuseGroup.addLayer(layer);
+
+                            let importedLayerId = layer._leaflet_id;
+                            props.map_id = importedLayerId;
+                            leafletLayersMap[importedLayerId] = layer;
+
+                            let themeColor = "#0d6efd";
+                            if (type === 'tree') themeColor = "#198754";
+                            else if (type === 'tourism') themeColor = "#dc3545";
+                            else if (type === 'utility') themeColor = "#ffc107";
+                            else if (type === 'landuse') themeColor = "#6f42c1";
+
+                            if (layer instanceof L.Marker) {
+                                const customIcon = L.divIcon({
+                                    className: 'custom-marker-icon',
+                                    html: `<div style="background-color: ${themeColor}; width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.4);"></div>`,
+                                    iconSize: [16, 16], iconAnchor: [8, 8]
+                                });
+                                layer.setIcon(customIcon);
+                            } else if (layer.setStyle) {
+                                layer.setStyle({ color: themeColor, fillColor: themeColor, fillOpacity: 0.4, weight: 3 });
+                            }
+
+                            let popupHTML = `<div style="min-width: 190px;"><h6 class="fw-bold text-primary border-bottom pb-1 mb-2">📊 ข้อมูลคุณลักษณะ (นำเข้า)</h6><ul class="list-unstyled m-0" style="font-size: 13px; line-height: 1.6;">`;
+                            if (type === 'tree') {
+                                popupHTML += `<li><b>🌲 ชนิด:</b> ${props.species}</li><li><b>📏 ความสูง:</b> ${props.height} ม.</li><li><b>🍂 สภาพ:</b> ${props.status}</li>`;
+                            } else if (type === 'tourism') {
+                                popupHTML += `<li><b>🏛️ ชื่อสถานที่:</b> ${props.place_name}</li><li><b>🧭 หมวดหมู่:</b> ${props.type}</li><li><b>📝 รายละเอียด:</b> ${props.detail}</li>`;
+                            } else if (type === 'utility') {
+                                popupHTML += `<li><b>💡 อุปกรณ์:</b> ${props.utility_type}</li><li><b>🔧 สภาพ:</b> ${props.status}</li><li><b>🏢 ผู้ดูแล:</b> ${props.responsible_owner}</li>`;
+                            } else if (type === 'landuse') {
+                                popupHTML += `<li><b>🏠 รูปแบบ:</b> ${props.landuse_type}</li><li><b>🏢 ชั้นอาคาร:</b> ${props.floors} ชั้น</li><li><b>📝 ชื่ออาคาร:</b> ${props.building_name}</li>`;
+                            }
+                            popupHTML += `<li class="text-muted border-top mt-1 pt-1" style="font-size: 11px;">⏱️ ${props.timestamp || '-'}</li></ul></div>`;
+                            layer.bindPopup(popupHTML);
+
+                            allSurveyFeatures.push(feature);
+                        }
+                    });
+
+                    document.getElementById('exportBtn').disabled = false;
+                    document.getElementById('clearBtn').disabled = false;
+                    updateFeatureTableList();
+
+                    switchMobileView('map');
+                    if (drawnItems.getBounds().isValid()) {
+                        map.fitBounds(drawnItems.getBounds());
+                    }
+                    alert("📂 นำเข้าไฟล์ข้อมูลสำเร็จ! ข้อมูลแยกประเภทเลเยอร์เรียบร้อยแล้ว");
+                } catch (err) {
+                    alert("❌ ไฟล์มีข้อผิดพลาด ไม่สามารถอ่านค่า JSON ได้");
+                }
+            };
+            reader.readAsText(file);
+            e.target.value = '';
+        });
+    </script>
+</body>
+
+</html>
